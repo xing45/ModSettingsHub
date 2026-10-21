@@ -206,6 +206,15 @@ namespace ModSettingsHub
         {
             try
             {
+                // 原生状态机模式：按钮只负责选中 Hub 页，不再 toggle 关闭。
+                // 关闭由关闭按钮或切换到其它原生侧边按钮完成（与原生 tab 行为一致）。
+                if (!_roomMode && _nativeHubReady)
+                {
+                    if (_openId == "hub") return;      // 已经选中：像原生 tab 一样无操作
+                    if (OpenHubNative()) return;
+                }
+
+                // 手动回退路径（原生注册失败 / room 模式）
                 if (!_roomMode && _overlay != null && _overlay.activeSelf) { HideOverlay(); return; }
                 _roomMode = false;
                 _uiHost = WindowParent;
@@ -244,12 +253,16 @@ namespace ModSettingsHub
                 if (ButtonLayout != null && ButtonLayout.Find("XM_ModSettings_hub") == null) RebuildButtons();
                 EnsureNativeButtonHooks();
 
+                if (_overlay == null) EnsureOverlay();
+                TrySetupNativeHubPage();
+                SyncNativeHubState();
+
                 if (_pendingOpenHub && (_overlay == null || !_overlay.activeSelf))
                 {
                     _pendingOpenHub = false;
                     _roomMode = false;
                     _uiHost = WindowParent;
-                    ShowHubHome();
+                    if (!_nativeHubReady || !OpenHubNative()) ShowHubHome();
                     LogOnce("opensettings:shown", "mod settings page shown inside the game's own settings scene");
                 }
             }

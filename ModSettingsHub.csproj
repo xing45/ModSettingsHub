@@ -8,14 +8,24 @@
     <Configurations>Debug;Release</Configurations>
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <Version>0.2.0</Version>
   </PropertyGroup>
 
   <PropertyGroup>
-    <GameDir>D:\steam\steamapps\common\gogh Focus with Your Avatar</GameDir>
+    <!-- 优先级：命令行 -p:GameDir=... > 环境变量 GOGH_DIR > 下面的默认路径 -->
+    <GameDir Condition="'$(GameDir)' == '' and '$(GOGH_DIR)' != ''">$(GOGH_DIR)</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">D:\steam\steamapps\common\gogh Focus with Your Avatar</GameDir>
     <MelonLoaderDir>$(GameDir)\MelonLoader\net6</MelonLoaderDir>
     <Il2CppDir>$(GameDir)\MelonLoader\Il2CppAssemblies</Il2CppDir>
-    <ApiDir>D:\VS_Projects\ModSettingsHub.Api\bin\Release\net6.0</ApiDir>
+    <!-- Api 与主项目同仓库：默认指向本仓库的 Api 输出，可用 -p:ApiDir=... 覆盖 -->
+    <ApiDir Condition="'$(ApiDir)' == ''">$(MSBuildThisFileDirectory)Api\bin\$(Configuration)\net6.0</ApiDir>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Api 是独立程序集：不能把它的源码再编进主程序集，否则静态注册表会分裂 -->
+    <Compile Remove="Api\**\*.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="MelonLoader">
@@ -83,6 +93,46 @@
     </Reference>
     <Reference Include="Unity.TextMeshPro">
       <HintPath>$(Il2CppDir)\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 游戏自身的 IL2CPP 程序集：用于强类型访问原生设置页/侧边按钮 -->
+  <ItemGroup>
+    <Reference Include="Il2CppViewAssemblyDefinition">
+      <HintPath>$(Il2CppDir)\Il2CppViewAssemblyDefinition.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppBehaviourAssemblyDefinition">
+      <HintPath>$(Il2CppDir)\Il2CppBehaviourAssemblyDefinition.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppDomainAssemblyDefinition">
+      <HintPath>$(Il2CppDir)\Il2CppDomainAssemblyDefinition.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInstallerAssemblyDefinition">
+      <HintPath>$(Il2CppDir)\Il2CppInstallerAssemblyDefinition.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppR3">
+      <HintPath>$(Il2CppDir)\Il2CppR3.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppZenject">
+      <HintPath>$(Il2CppDir)\Il2CppZenject.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityProcessManager">
+      <HintPath>$(Il2CppDir)\UnityProcessManager.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppRotaryHeart.SerializableDictionaryLite">
+      <HintPath>$(Il2CppDir)\Il2CppRotaryHeart.SerializableDictionaryLite.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Localization">
+      <HintPath>$(Il2CppDir)\Unity.Localization.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

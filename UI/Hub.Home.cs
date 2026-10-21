@@ -21,7 +21,8 @@ namespace ModSettingsHub
         readonly Dictionary<string, Image> _listRows = new Dictionary<string, Image>();
         readonly Dictionary<string, Image> _listDots = new Dictionary<string, Image>();
 
-        void ShowHubHome()
+        // 只构建内容，不负责显隐（原生状态机模式下由 UpdateWindow 显示）
+        void BuildHubHomeContent()
         {
             try
             {
@@ -29,17 +30,10 @@ namespace ModSettingsHub
                 if (_overlay == null || _overlayContent == null) return;
 
                 RefreshEntries();                       // 每次打开都重新读注册表/配置（条目可能变了）
-                if (!_roomMode) FitOverlayToActiveNativePage();
+                if (!_roomMode) AlignOverlayToActiveNativePage();
                 CloseModPicker();
                 BuildList();
 
-                if (_overlay != null) _overlay.SetActive(true);
-                if (_overlay != null) _overlay.transform.SetAsLastSibling();
-                HotkeyStore.Suspended = true;   // 设置页开着时，别的 mod 热键一律不响应
-                HideNativePages(true);          // 设置场景：盖住原生页（否则两套 UI 叠在一起）
-                if (_backdrop != null) _backdrop.SetActive(true);
-                InputLocked = false;            // 内嵌在原生设置里，不需要锁房间相机（避免退出后视角卡死）
-                _openId = "hub";
                 if (_overlayTitle != null) SetTmpComp(_overlayTitle, "MOD 设置");
 
                 if (Entries.Count > 0) SelectEntry(Entries[0]);
@@ -48,6 +42,33 @@ namespace ModSettingsHub
                     ClearChildren(_overlayContent);
                     AddLabel(_overlayContent, "还没有可显示的 mod 设置", 20, ColDim);
                 }
+                HighlightButton();
+            }
+            catch (Exception e) { MelonLogger.Error("hub content: " + e); }
+        }
+
+        // 手动显隐（房间模式 / 原生状态机注册失败时的回退路径）
+        void ShowHubHome()
+        {
+            try
+            {
+                BuildHubHomeContent();
+                if (_overlay == null || _overlayContent == null) return;
+
+                var cg = _overlay.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.blocksRaycasts = true;
+                    cg.interactable = true;
+                }
+                _overlay.SetActive(true);
+                _overlay.transform.SetAsLastSibling();
+                HotkeyStore.Suspended = true;   // 设置页开着时，别的 mod 热键一律不响应
+                HideNativePages(true);          // 设置场景：盖住原生页（否则两套 UI 叠在一起）
+                if (_backdrop != null) _backdrop.SetActive(true);
+                InputLocked = false;            // 内嵌在原生设置里，不需要锁房间相机（避免退出后视角卡死）
+                _openId = "hub";
                 HighlightButton();
             }
             catch (Exception e) { MelonLogger.Error("hub home: " + e); }

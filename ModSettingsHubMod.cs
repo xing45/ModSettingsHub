@@ -20,46 +20,21 @@
 //   C. MelonPreferences 自动生成（零改动，改完需重启）
 // ============================================================================
 using System;
-using System.Collections.Generic;
-using System.Reflection;
 using MelonLoader;
 using MelonLoader.Utils;
 using ModSettingsHub.Api;
 using UnityEngine;
-using UnityEngine.Events;
 using UnityEngine.SceneManagement;
-using UnityEngine.UI;
 
 [assembly: MelonInfo(typeof(ModSettingsHub.ModSettingsHubMod), "ModSettingsHub", "0.2.0", "XingMang")]
+[assembly: MelonGame("gogh Japan", "gogh")]
+
 
 namespace ModSettingsHub
 {
     public partial class ModSettingsHubMod : MelonMod
     {
         internal const string SettingsSceneName = "S_SettingsScene";
-        internal const string HubName = "ModSettingsHub";
-
-        // ---- 一条设置页（注册页 / 注册入口 / 自动配置分类） ----
-        internal sealed class HubEntry
-        {
-            public string Id = "";
-            public string ModId = "";      // = MelonPreferences 分类 id / 注册 id（快捷键与内置 UI 用）
-            public string Name = "";
-            public byte[] IconPng;
-            public IModSettingsPage Page;
-            public IModSettingsEntry Entry;
-            public MelonPreferences_Category Cfg;
-        }
-
-        internal readonly List<HubEntry> Entries = new List<HubEntry>();
-        string _entrySignature = "";
-
-        // ---- 设置场景里的节点 ----
-        internal Transform ContentRoot;
-        internal Transform MainRoot;
-        internal Transform SideButtons;
-        internal Transform ButtonLayout;
-        internal Transform WindowParent;
 
         float _scanAt = -1f;
 
@@ -132,210 +107,5 @@ namespace ModSettingsHub
             catch (Exception e) { LogOnce("tickerr", "tick err " + e); }
         }
 
-        internal void LogOnce(string key, string msg)
-        {
-            // 只打一次（不跟 verbose 走）
-            try
-            {
-                if (_loggedKeys.Add(key)) MelonLogger.Msg(msg);
-            }
-            catch { }
-        }
-
-        readonly HashSet<string> _loggedKeys = new HashSet<string>();
-
-        // ===================== 找设置场景里的节点 =====================
-        bool FindSettingsUi()
-        {
-            try
-            {
-                var sc = SceneManager.GetSceneByName(SettingsSceneName);
-                if (!sc.IsValid() || !sc.isLoaded) return false;
-
-                var roots = sc.GetRootGameObjects();
-                if (roots == null || roots.Length == 0) return false;
-
-                Transform canvas = null;
-                for (int i = 0; i < roots.Length; i++)
-                {
-                    try
-                    {
-                        if (roots[i] == null) continue;
-                        var t = roots[i].transform.Find("P_CommonCanvas_Landscape");
-                        if (t != null) { canvas = t; break; }
-                    }
-                    catch { }
-                }
-                if (canvas == null) canvas = DeepFind(roots, "P_CommonCanvas_Landscape");
-                if (canvas == null) return false;
-
-                var content = canvas.Find("ContentRoot");
-                if (content == null) return false;
-                var main = content.Find("Main");
-                if (main == null) return false;
-                var side = main.Find("SideButtons");
-                if (side == null) return false;
-                var layout = side.Find("ButtonLayout");
-                if (layout == null) return false;
-                var wp = main.Find("P_SwitchSettingsWindowObject/WindowParent");
-                if (wp == null) wp = DeepFind(main, "WindowParent");
-
-                ContentRoot = content;
-                MainRoot = main;
-                SideButtons = side;
-                ButtonLayout = layout;
-                WindowParent = wp;
-
-                if (WindowParent == null) return false;
-                LogOnce("ui", "settings ui found: side='" + side.name + "' buttons=" + layout.childCount
-                    + " windowParent='" + WindowParent.name + "' children=" + WindowParent.childCount);
-                return true;
-            }
-            catch (Exception e)
-            {
-                LogOnce("finderr", "find ui err " + e.Message);
-                return false;
-            }
-        }
-
-        static Transform DeepFind(IEnumerable<GameObject> roots, string name)
-        {
-            try
-            {
-                foreach (var go in roots)
-                {
-                    var t = DeepFind(go != null ? go.transform : null, name);
-                    if (t != null) return t;
-                }
-            }
-            catch { }
-            return null;
-        }
-
-        static Transform DeepFind(Transform t, string name)
-        {
-            try
-            {
-                if (t == null) return null;
-                if (t.name == name) return t;
-                int n = t.childCount;
-                for (int i = 0; i < n; i++)
-                {
-                    var r = DeepFind(t.GetChild(i), name);
-                    if (r != null) return r;
-                }
-            }
-            catch { }
-            return null;
-        }
-
-        // ===================== 收集条目 =====================
-        bool RefreshEntries()
-        {
-            try
-            {
-                var list = new List<HubEntry>();
-                var seen = new HashSet<string>();
-
-                // A. 注册的自建页
-                var pages = ModSettingsRegistry.SnapshotPages();
-                for (int i = 0; i < pages.Count; i++)
-                {
-                    var p = pages[i];
-                    if (p == null || string.IsNullOrEmpty(p.Id)) continue;
-                    string id = "page:" + p.Id;
-                    if (!seen.Add(id)) continue;
-                    list.Add(new HubEntry { Id = id, ModId = p.Id, Name = SafeName(p.DisplayName, p.Id), IconPng = p.IconPng, Page = p });
-                }
-
-                // B. 注册的"打开我自己面板"入口
-                var entries = ModSettingsRegistry.SnapshotEntries();
-                for (int i = 0; i < entries.Count; i++)
-                {
-                    var e = entries[i];
-                    if (e == null || string.IsNullOrEmpty(e.Id)) continue;
-                    string id = "entry:" + e.Id;
-                    if (!seen.Add(id)) continue;
-                    list.Add(new HubEntry { Id = id, ModId = e.Id, Name = SafeName(e.DisplayName, e.Id), IconPng = e.IconPng, Entry = e });
-                }
-
-                // C. MelonPreferences 自动页（排除 Hub 自己、排除已经用 A/B 覆盖的 mod）
-                try
-                {
-                    var cats = MelonPreferences.Categories;
-                    if (cats != null)
-                    {
-                        for (int i = 0; i < cats.Count; i++)
-                        {
-                            var c = cats[i];
-                            if (c == null) continue;
-                            string cid = c.Identifier;
-                            if (string.IsNullOrEmpty(cid)) continue;
-                            if (cid == HubName) continue;
-                            if (HideCategory(cid)) continue;
-                            try { if (c.Entries == null || c.Entries.Count == 0) continue; } catch { continue; }
-                            // 已被 A/B 覆盖（按 id 去掉 "page:"/"entry:" 前缀比较）
-                            bool covered = false;
-                            foreach (var s in seen)
-                            {
-                                int k = s.IndexOf(':');
-                                if (k >= 0 && string.Equals(s.Substring(k + 1), cid, StringComparison.OrdinalIgnoreCase)) { covered = true; break; }
-                            }
-                            if (covered) continue;
-                            string id = "cfg:" + cid;
-                            if (!seen.Add(id)) continue;
-                            list.Add(new HubEntry { Id = id, ModId = cid, Name = ChineseName(cid), Cfg = c });
-                        }
-                    }
-                }
-                catch (Exception e) { LogOnce("cfgerr", "prefs scan err " + e.Message); }
-
-                // 签名变化才替换（避免每次 tick 重建图标）
-                var sb = new System.Text.StringBuilder();
-                for (int i = 0; i < list.Count; i++) sb.Append(list[i].Id).Append('|');
-                string sig = sb.ToString();
-                if (sig == _entrySignature) return false;
-
-                _entrySignature = sig;
-                Entries.Clear();
-                Entries.AddRange(list);
-                LogOnce("entries:" + list.Count, "entries changed -> " + list.Count + " (" + sig + ")");
-                return true;
-            }
-            catch (Exception e)
-            {
-                LogOnce("refresherr", "refresh entries err " + e);
-                return false;
-            }
-        }
-
-        static string SafeName(string a, string b)
-        {
-            if (!string.IsNullOrEmpty(a)) return a;
-            return b ?? "";
-        }
-
-        // 分类里只有日志/调试开关 ⇒ 不值得占一个 mod 页（用户："为什么有个表情导演？"）
-        static bool OnlyLogCategory(MelonPreferences_Category c)
-        {
-            try
-            {
-                if (c == null || c.Entries == null) return false;
-                int useful = 0;
-                for (int i = 0; i < c.Entries.Count; i++)
-                {
-                    var e = c.Entries[i];
-                    if (e == null) continue;
-                    string id = EntryIdentifier(e);
-                    if (string.IsNullOrEmpty(id)) continue;
-                    if (id.IndexOf("Verbose", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                    if (id.IndexOf("Debug", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                    if (id.IndexOf("Log", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                    useful++;
-                }
-                return useful == 0;
-            }
-            catch { return false; }
-        }
     }
 }

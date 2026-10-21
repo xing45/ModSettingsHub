@@ -17,6 +17,10 @@ namespace ModSettingsHub
         // ---- 注入 ----
         const string NativeButtonPrefix = "P_SettingsSideButtonObject_";
         const string OurButtonPrefix = "XM_ModSettings_";
+
+        // ---- 固定窗口尺寸：锚点/位置跟原生页对齐，尺寸由我们决定 ----
+        static readonly Vector2 OverlaySize = new Vector2(768f, 840f);
+
         readonly HashSet<IntPtr> _hookedNativeButtons = new HashSet<IntPtr>();
         Transform _buttonTemplate;
 
@@ -56,6 +60,7 @@ namespace ModSettingsHub
                     try { UnityEngine.Object.Destroy(old[i]); } catch { }
                 }
                 _hubButtonImage = null;
+                ClearHubButtonWiring();
 
                 // ★只注入**一颗**【模组】图标：点开是"mod 列表 + 选中项设置"，
                 //   不再给每个 cfg 分类都插一颗（实测 20+ 颗会把左侧列撑到屏幕外）。
@@ -69,32 +74,24 @@ namespace ModSettingsHub
                     if (btn != null)
                     {
                         btn.onClick.RemoveAllListeners();
-                        btn.onClick.AddListener((UnityAction)ToggleSettingsHub);
                         try { btn.transition = Selectable.Transition.None; } catch { }
 
                         var img = btn.GetComponent<Image>();
                         if (img != null)
                         {
-                            // 原生设置左列同款外观：深色圆底 + 白色网格图标（不是红点）
-                            var circle = GetSprite("T_WhiteCircle");
-                            if (circle != null) { img.sprite = circle; img.type = Image.Type.Simple; img.preserveAspect = true; }
-                            img.color = new Color(0f, 24f / 255f, 38f / 255f, 229f / 255f);
+                            // 原生侧边按钮的图标位；InitView 会在 matched/unmatched 间切换。
+                            var grid = GetSprite("XM_ModGrid");
+                            if (grid != null) { img.sprite = grid; img.type = Image.Type.Simple; img.preserveAspect = true; }
+                            img.color = new Color(1f, 1f, 1f, 0.55f);
                             img.raycastTarget = true;
                             _hubButtonImage = img;
-
-                            var icon = new GameObject("Icon");
-                            var irt = icon.AddComponent<RectTransform>();
-                            irt.SetParent(btn.transform, false);
-                            irt.anchorMin = irt.anchorMax = new Vector2(0.5f, 0.5f);
-                            irt.pivot = new Vector2(0.5f, 0.5f);
-                            irt.sizeDelta = new Vector2(20f, 20f);
-                            irt.anchoredPosition = Vector2.zero;
-                            var iimg = icon.AddComponent<Image>();
-                            var grid = GetSprite("XM_ModGrid");
-                            if (grid != null) { iimg.sprite = grid; iimg.preserveAspect = true; }
-                            iimg.color = Color.white;
-                            iimg.raycastTarget = false;
                         }
+
+                        // 复用原生 View：hover Tips / 点击反馈 / 选中态（用我们自己的 bool）
+                        TryWireNativeSideButton(go, _buttonTemplate);
+
+                        // 点击放在最后，避免被 InitView/InitBehaviour 的初始化覆盖
+                        btn.onClick.AddListener((UnityAction)ToggleSettingsHub);
                         try
                         {
                             var tip = go.transform.Find("Tips/CommonLocalizeText/Text (TMP)");
@@ -106,6 +103,7 @@ namespace ModSettingsHub
                 }
 
                 ResizeSideColumn();
+                HighlightButton();
                 LogOnce("injected", "injected hub button; sideButtons size=" + RtSize(SideButtons)
                     + " native=" + CountNativeButtons() + " entries=" + Entries.Count);
             }
@@ -190,7 +188,7 @@ namespace ModSettingsHub
                     if (ob == null) continue;
                     IntPtr p = ob.Pointer;
                     if (p == IntPtr.Zero || !_hookedNativeButtons.Add(p)) continue;
-                    btn.onClick.AddListener((UnityAction)HideOverlay);
+                    btn.onClick.AddListener((UnityAction)OnNativeSideButtonClicked);
                 }
             }
             catch (Exception e) { LogOnce("hooknative", "native hook err " + e.Message); }
@@ -200,6 +198,9 @@ namespace ModSettingsHub
         {
             _hookedNativeButtons.Clear();
             _buttonTemplate = null;
+            _hubButtonImage = null;
+            ClearHubButtonWiring();
+            ClearNativeHubState();
         }
 
         // ===================== 点击 =====================
@@ -234,6 +235,9 @@ namespace ModSettingsHub
         {
             try
             {
+                // 原生状态机模式：关闭按钮 = 切回上一个原生页，显隐交给原生 UpdateWindow
+                if (!_roomMode && CloseHubNative()) return;
+
                 MelonLogger.Msg("hub: close/hide window");
                 CancelHotkeyCapture();
                 CloseModPicker();
@@ -251,6 +255,7 @@ namespace ModSettingsHub
 
         void ResetOverlay()
         {
+            ClearNativeHubState();
             InputLocked = false;
             HotkeyStore.Suspended = false;
             if (_hiddenRoomCanvases.Count > 0) HideRoomUi(false);
@@ -281,7 +286,8 @@ namespace ModSettingsHub
             {
                 if (_hubButtonImage == null) return;
                 bool on = _openId != null;
-                _hubButtonImage.color = on ? new Color(0.05f, 0.18f, 0.24f, 0.95f) : new Color(0f, 24f / 255f, 38f / 255f, 229f / 255f);
+                _hubButtonImage.color = on ? Color.white : new Color(1f, 1f, 1f, 0.55f);
+                SetHubButtonSelected(on);
             }
             catch { }
         }
@@ -349,9 +355,8 @@ namespace ModSettingsHub
         }
 
         // ===================== 覆盖层骨架 =====================
-        // ★和"当前正在显示的原生页"逐像素对齐：用世界四角反算 WindowParent 局部矩形，
-        //   不靠固定 768×960 猜（不同页高度不一样，计时器页 840、画质页 0）。
-        void FitOverlayToActiveNativePage()
+        // 只对齐原生页的锚点 / pivot / 位置；尺寸固定为 OverlaySize，不跟随不同页面变化。
+        void AlignOverlayToActiveNativePage()
         {
             try
             {
@@ -370,27 +375,23 @@ namespace ModSettingsHub
                     float area = Mathf.Abs(rt.rect.width * rt.rect.height);
                     if (area > bestArea) { bestArea = area; best = ch; }
                 }
-                if (best == null) return;
-
-                var brt = best.GetComponent<RectTransform>();
-                // ★直接复制当前页的锚点/尺寸/位置（同一个父节点，最稳；世界角反算会因父级偏移算歪）
-                _overlayRt.anchorMin = brt.anchorMin;
-                _overlayRt.anchorMax = brt.anchorMax;
-                _overlayRt.pivot = brt.pivot;
-                if (brt.rect.width >= 100f && brt.rect.height >= 100f)
+                if (best != null)
                 {
-                    _overlayRt.sizeDelta = brt.sizeDelta;
+                    var brt = best.GetComponent<RectTransform>();
+                    // ★只复制对齐方式：锚点 / pivot / 位置。
+                    _overlayRt.anchorMin = brt.anchorMin;
+                    _overlayRt.anchorMax = brt.anchorMax;
+                    _overlayRt.pivot = brt.pivot;
                     _overlayRt.anchoredPosition = brt.anchoredPosition;
+                    LogOnce("align:" + best.name,
+                        "overlay aligned to '" + best.name + "' anchors=" + brt.anchorMin + ".." + brt.anchorMax
+                        + " pivot=" + brt.pivot);
                 }
-                else
-                {
-                    _overlayRt.offsetMin = brt.offsetMin;
-                    _overlayRt.offsetMax = brt.offsetMax;
-                }
-                LogOnce("fit:" + best.name,
-                    "overlay matched '" + best.name + "' size=" + brt.sizeDelta + " pos=" + brt.anchoredPosition);
+
+                // ★尺寸始终固定，跟原生页无关。
+                _overlayRt.sizeDelta = OverlaySize;
             }
-            catch (Exception e) { LogOnce("fiterr", "fit err " + e.Message); }
+            catch (Exception e) { LogOnce("alignerr", "align err " + e.Message); }
         }
 
         void EnsureOverlay()
@@ -427,24 +428,22 @@ namespace ModSettingsHub
                 Transform windowNode = _overlay.transform;
                 Transform listNode = _overlay.transform;
 
-                // 统一布局：768×840 窗口居中；侧栏在窗口内左侧 220（= 用户确认"对！！就是这样"的那版）
-                // 设置场景里直接复制当前原生页的几何（左对齐 768 宽），房间模式才居中
+                // 固定尺寸 OverlaySize；设置场景的对齐方式随后由
+                // AlignOverlayToActiveNativePage() 从当前原生页复制。房间模式（遗留）居中。
                 if (_roomMode)
                 {
                     _overlayRt.anchorMin = new Vector2(0.5f, 0.5f);
                     _overlayRt.anchorMax = new Vector2(0.5f, 0.5f);
                     _overlayRt.pivot = new Vector2(0.5f, 0.5f);
-                    _overlayRt.sizeDelta = new Vector2(768f, 840f);
-                    _overlayRt.anchoredPosition = Vector2.zero;
                 }
                 else
                 {
                     _overlayRt.anchorMin = new Vector2(0f, 0.5f);
                     _overlayRt.anchorMax = new Vector2(0f, 0.5f);
                     _overlayRt.pivot = new Vector2(0f, 0.5f);
-                    _overlayRt.sizeDelta = new Vector2(768f, 840f);
-                    _overlayRt.anchoredPosition = Vector2.zero;
                 }
+                _overlayRt.sizeDelta = OverlaySize;
+                _overlayRt.anchoredPosition = Vector2.zero;
 
                 var bg = _overlay.GetComponent<Image>();
                 var bgSp = GetSprite("BG_Graphics");

@@ -12,24 +12,32 @@
 ```
 ModSettingsHub/            主 mod（Mods\ModSettingsHub.dll）
   Api/                     ModSettingsHub.Api 源码副本（共享契约，放 UserLibs）
+  UI/                      UI 绘制相关的 partial 文件
   Sprites/                 内嵌的原生 UI 贴图
-  *.cs
+  *.cs                     其余 partial 文件（入口、场景、条目、工具、输入锁、中文名）
 ```
 
 ## 构建
 
-需要 .NET 6 SDK 与 MelonLoader 0.7.x 的游戏目录。
+需要 .NET 6 SDK 与 MelonLoader 0.7.x 的游戏目录。`GameDir` 按以下优先级取值：
+命令行 `-p:GameDir="..."` → 环境变量 `GOGH_DIR` → csproj 里的默认路径。
 
-1. 先构建共享契约（会生成 `Api\bin\Release\net6.0\ModSettingsHub.Api.dll`）：
+推荐用环境变量（Windows，设置后新开终端生效）：
+```
+setx GOGH_DIR target path
+```
+临时使用：PowerShell `$env:GOGH_DIR="..."`，Git Bash `export GOGH_DIR="..."`。
+
+1. 先构建共享契约（会生成 `Api\bin\<Configuration>\net6.0\ModSettingsHub.Api.dll`）：
    ```
-   dotnet build Api\ModSettingsHub.Api.csproj -c Release
+   dotnet build Api\ModSettingsHub.Api.csproj -c Release -p:GameDir="你的游戏目录"
    ```
-2. 构建主 mod。`ModSettingsHub.csproj` 里的 `ApiDir` 默认指向作者本机路径；
-   在你的机器上用命令行覆盖：
+2. 再构建主 mod：
    ```
-   dotnet build ModSettingsHub.csproj -c Release -p:ApiDir=Api\bin\Release\net6.0
+   dotnet build ModSettingsHub.csproj -c Release -p:GameDir="你的游戏目录"
    ```
-   （或者直接把 csproj 里的 `<ApiDir>` 改成 `Api\bin\Release\net6.0`。）
+   `ApiDir` 默认指向本仓库的 `Api\bin\<Configuration>\net6.0`，一般不需要覆盖；
+   如果 Api 输出在别处，可加 `-p:ApiDir=...`。
 
 ## 安装
 

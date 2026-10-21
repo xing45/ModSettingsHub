@@ -3,3 +3,5 @@ obj/
 .vs/
 *.user
 *.suo
+AGENTS.local.md
+CLAUDE.local.md
