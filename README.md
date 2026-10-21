@@ -76,6 +76,10 @@ if (HotkeyStore.UiOn("MyMod", true)) BuildMyEntry();
 2. 所有 mod 引用 API 必须 `Private=false`，否则会有多份 `HotkeyStore` 静态表。
 3. `ModId` 要与 MelonPreferences 分类名一致，Hub 才能把热键挂到对应页面。
 
+## 贡献者
+- XingMang（作者）
+- luminelcy（源码拆分 / 原生设置状态机接入）
+
 ## 版本
 
 - 0.2.0（2026-10-18）：原生设置入口 + 下拉选 mod + 快捷键改绑/重置 + 内置 UI 开关。
